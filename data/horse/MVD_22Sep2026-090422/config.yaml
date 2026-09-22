@@ -1,9 +1,9 @@
 mesh: "./mesh.obj"
 mesh_config_relative: True    # mesh is placed relative to the config file
 use_mesh_name: False
-prompt: "Pure matte, no shading, black textured horse"
+prompt: "Photo of a black horse, no lighting or shading"
 steps: 30
-cond_type: "normal"
+cond_type: "depth"
 seed: 1
 mesh_scale: 1
 tex_fast_preview: True

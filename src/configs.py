@@ -21,7 +21,7 @@ def parse_config():
     parser.add_argument('--seed', type=int, default=0)
     # ControlNet Config
     parser.add_argument('--cond_type', type=str, default='depth', help='Support depth and normal, less multi-face in normal mode, but some times less details')
-    parser.add_argument('--flat_cond', action='store_true', help='Replace the per-pixel depth/normal values inside the rendered silhouette with one flat value before conditioning, so the ControlNet sees no within-object shading gradient. Background is left as-is. Off by default.')
+    parser.add_argument('--flat_cond', action='store_true', help='Replace the per-pixel depth/normal values inside the rendered silhouette with one flat value before conditioning, so the ControlNet sees no within-object shading gradient. The silhouette stays distinguishable from the background (depth: background left as computed; normal: background forced black). Off by default.')
     parser.add_argument('--guess_mode', action='store_true')
     parser.add_argument('--conditioning_scale', type=float, default=0.7)
     parser.add_argument('--conditioning_scale_end', type=float, default=0.9, help='Gradually increasing conditioning scale for better geometry alignment near the end')

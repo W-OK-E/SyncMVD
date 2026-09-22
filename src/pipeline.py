@@ -81,13 +81,19 @@ def get_conditioning_images(uvp, output_size, render_size=512, blur_filter=5, co
 
 	if cond_type == "normal":
 		if flat_cond:
-			# decode_view_normal already fills every background pixel with FLAT_FACING_NORMAL_RGB
-			# (see project.py); using the same constant everywhere -- background included -- removes
-			# the within-object gradient the paired ControlNet reads as directional shading, at the
-			# cost of the silhouette edge (background already equalled this value, so there is no
-			# separate "outline" to keep here, unlike the depth branch below).
-			view_normals = torch.tensor(FLAT_FACING_NORMAL_RGB, device=normals.device, dtype=normals.dtype)
-			view_normals = view_normals.expand(normals.shape[0], normals.shape[1], normals.shape[2], 3)
+			# Foreground: the same "flat, facing camera" fill decode_view_normal already uses for
+			# its OWN background (see FLAT_FACING_NORMAL_RGB in project.py) -- physically correct for
+			# a flat plane facing the viewer, and the most neutral choice, so it should not itself
+			# bias the model toward any particular light direction. Background: pure black (0,0,0
+			# pre *2-1, i.e. color_constants["black"] below), deliberately NOT the same fill, so the
+			# ControlNet channel keeps a distinguishable outline. Reusing one constant for both (an
+			# earlier version of this branch did) collapses the whole frame to a single colour --
+			# verified via a saved cond.jpg from that run -- which starves some views of any shape
+			# cue at all.
+			silhouette = normals[...,3:] > 0.5  # (N,H,W,1), broadcasts over the RGB channels below
+			flat_fg = torch.tensor(FLAT_FACING_NORMAL_RGB, device=normals.device, dtype=normals.dtype)
+			flat_fg = flat_fg.expand_as(normals[...,0:3])
+			view_normals = torch.where(silhouette, flat_fg, torch.zeros_like(flat_fg))
 			view_normals = view_normals.permute(0,3,1,2) *2 - 1
 		else:
 			view_normals = uvp.decode_view_normal(normals).permute(0,3,1,2) *2 - 1
