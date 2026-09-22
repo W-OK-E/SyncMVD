@@ -24,6 +24,13 @@ from .shader import HardNChannelFlatShader
 from .voronoi import voronoi_solve
 
 
+# The normal-map RGB for "flat surface, facing the camera" (decodes to view-space
+# normal (0,0,1) via the usual (n+1)/2 encoding). decode_view_normal already paints
+# every background pixel this colour; pipeline.py's flat_cond path reuses the same
+# constant for foreground pixels, so the two stay in sync if this ever changes.
+FLAT_FACING_NORMAL_RGB = (0.5, 0.5, 1.0)
+
+
 # Pytorch3D based renderering functions, managed in a class
 # Render size is recommended to be the same as your latent view size
 # DO NOT USE "bilinear" sampling when you are handling latents.
@@ -313,7 +320,7 @@ class UVProjection():
 		normals_view = w2v_mat.transform_normals(normals_view)
 		normals_view = normals_view.reshape(normals.shape[0:3]+(3,))
 		normals_view[:,:,:,2] *= -1
-		normals = (normals_view[...,0:3]+1) * normals[...,3:] / 2 + torch.FloatTensor(((((0.5,0.5,1))))).to(self.device) * (1 - normals[...,3:])
+		normals = (normals_view[...,0:3]+1) * normals[...,3:] / 2 + torch.FloatTensor(FLAT_FACING_NORMAL_RGB).to(self.device) * (1 - normals[...,3:])
 		# normals = torch.cat([normal for normal in normals], dim=1)
 		normals = normals.clamp(0, 1)
 		return normals

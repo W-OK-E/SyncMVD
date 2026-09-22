@@ -1,0 +1,11 @@
+mesh: "./mesh.obj"
+mesh_config_relative: True    # mesh is placed relative to the config file
+use_mesh_name: False
+prompt: "Photo of a black horse, no lighting or shading"
+steps: 30
+cond_type: "normal"
+seed: 1
+mesh_scale: 1
+tex_fast_preview: True
+view_fast_preview: True
+flat_cond: True    # the only difference from config.yaml -- compare the two runs to isolate this flag's effect

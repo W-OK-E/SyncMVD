@@ -106,8 +106,9 @@ result_tex_rgb, textured_views, v = syncmvd(
 
 	logging_config=logging_config,
 	cond_type=opt.cond_type,
-	
-	
+	flat_cond=opt.flat_cond,
+
+
 	)
 
 display(v)

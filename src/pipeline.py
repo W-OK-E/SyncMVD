@@ -35,6 +35,7 @@ from diffusers.models.attention_processor import Attention, AttentionProcessor
 
 from transformers import CLIPImageProcessor, CLIPTextModel, CLIPTokenizer
 from .renderer.project import UVProjection as UVP
+from .renderer.project import FLAT_FACING_NORMAL_RGB
 
 
 from .syncmvd.attention import SamplewiseAttnProcessor2_0, replace_attention_processors
@@ -59,26 +60,49 @@ color_constants = {"black": [-1, -1, -1], "white": [1, 1, 1], "maroon": [0, -1, 
 color_names = list(color_constants.keys())
 
 
+# A depth-conditioning fill for flat_cond: the "nearest" end of decode_normalized_depth's
+# per-view [0,1] stretch, i.e. what the closest point of a flat plane facing the camera would
+# read as. Background stays wherever the unmodified formula already puts it (near 0, since
+# background pixels get view_z=100 before normalization -- see decode_normalized_depth), so the
+# two ends stay distinct and the silhouette is still legible to the ControlNet.
+FLAT_DEPTH_VALUE = 1.0
+
+
 # Used to generate depth or normal conditioning images
 @torch.no_grad()
-def get_conditioning_images(uvp, output_size, render_size=512, blur_filter=5, cond_type="normal"):
+def get_conditioning_images(uvp, output_size, render_size=512, blur_filter=5, cond_type="normal", flat_cond=False):
 	verts, normals, depths, cos_maps, texels, fragments = uvp.render_geometry(image_size=render_size)
 	masks = normals[...,3][:,None,...]
 	masks = Resize((output_size//8,)*2, antialias=True)(masks)
 	normals_transforms = Compose([
-		Resize((output_size,)*2, interpolation=InterpolationMode.BILINEAR, antialias=True), 
+		Resize((output_size,)*2, interpolation=InterpolationMode.BILINEAR, antialias=True),
 		GaussianBlur(blur_filter, blur_filter//3+1)]
 	)
 
 	if cond_type == "normal":
-		view_normals = uvp.decode_view_normal(normals).permute(0,3,1,2) *2 - 1
+		if flat_cond:
+			# decode_view_normal already fills every background pixel with FLAT_FACING_NORMAL_RGB
+			# (see project.py); using the same constant everywhere -- background included -- removes
+			# the within-object gradient the paired ControlNet reads as directional shading, at the
+			# cost of the silhouette edge (background already equalled this value, so there is no
+			# separate "outline" to keep here, unlike the depth branch below).
+			view_normals = torch.tensor(FLAT_FACING_NORMAL_RGB, device=normals.device, dtype=normals.dtype)
+			view_normals = view_normals.expand(normals.shape[0], normals.shape[1], normals.shape[2], 3)
+			view_normals = view_normals.permute(0,3,1,2) *2 - 1
+		else:
+			view_normals = uvp.decode_view_normal(normals).permute(0,3,1,2) *2 - 1
 		conditional_images = normals_transforms(view_normals)
 	# Some problem here, depth controlnet don't work when depth is normalized
 	# But it do generate using the unnormalized form as below
 	elif cond_type == "depth":
 		view_depths = uvp.decode_normalized_depth(depths).permute(0,3,1,2)
+		if flat_cond:
+			# Replace only the visible silhouette with one flat value; background is left exactly as
+			# decode_normalized_depth already computed it, so the outline survives (see FLAT_DEPTH_VALUE).
+			silhouette = depths[...,1][:,None,...] > 0.5  # (N,1,H,W), broadcasts over view_depths' 3 channels
+			view_depths = torch.where(silhouette, torch.full_like(view_depths, FLAT_DEPTH_VALUE), view_depths)
 		conditional_images = normals_transforms(view_depths)
-	
+
 	return conditional_images, masks
 
 
@@ -328,6 +352,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 		logging_config=None,
 		cond_type="depth",
+		flat_cond=False,
 	):
 		
 
@@ -439,7 +464,7 @@ class StableSyncMVDPipeline(StableDiffusionControlNetPipeline):
 
 		# (4. Prepare image) This pipeline use internal conditional images from Pytorch3D
 		self.uvp.to(self._execution_device)
-		conditioning_images, masks = get_conditioning_images(self.uvp, height, cond_type=cond_type)
+		conditioning_images, masks = get_conditioning_images(self.uvp, height, cond_type=cond_type, flat_cond=flat_cond)
 		conditioning_images = conditioning_images.type(prompt_embeds.dtype)
 		cond = (conditioning_images/2+0.5).permute(0,2,3,1).cpu().numpy()
 		cond = np.concatenate([img for img in cond], axis=1)
